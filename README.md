@@ -15,27 +15,32 @@ phone notifications and Claude repair sessions are optional extras.
 ## How it fits together
 
 ```mermaid
-flowchart TB
+flowchart LR
   subgraph mac["Your Mac"]
-    launchd["launchd"] -->|keeps running| watchdog["Watchdog"]
-
-    subgraph host["Supervisor host: LaunchAgent or terminal tab"]
-      supervisor["Supervisor, one per server"]
-    end
-
-    launchd -->|default hosting| supervisor
-    watchdog -->|asks host to start when missing| supervisor
-    supervisor -->|starts and relaunches after exit| server["Claude Remote Control server"]
-    watchdog -.->|checks server and sessions| server
-
-    watchdog -->|incident| notify["macOS notification<br/>optional phone notification hook"]
-    watchdog -->|eligible incident, if configured| repair["Claude repair session"]
-    watchdog -->|checks and starts, if enabled| codex["Codex daemon"]
+    launchd["launchd"]
+    supervisor["Supervisor<br/>one per server<br/>LaunchAgent or terminal tab"]
+    server["Claude Remote Control<br/>server"]
+    watchdog["Watchdog"]
+    repair["Repair session<br/>optional"]
+    codex["Codex daemon<br/>optional"]
   end
 
-  server <-->|coding sessions| claudeApp["Claude app / claude.ai/code"]
-  repair <-->|diagnosis and approval| claudeApp
-  codex <--> codexApp["ChatGPT / Codex"]
+  claudeApp["Claude app<br/>claude.ai/code"]
+  alerts["Alerts<br/>Mac notification,<br/>optional phone hook"]
+  codexApp["ChatGPT<br/>Codex"]
+
+  launchd -->|hosts by default| supervisor
+  supervisor -->|starts, relaunches<br/>after exit| server
+  server <-->|coding sessions| claudeApp
+
+  launchd -->|keeps running| watchdog
+  watchdog -.->|checks| server
+  watchdog -->|asks for a<br/>missing one| supervisor
+  watchdog -->|incident| alerts
+  watchdog -->|incident| repair
+  repair <-->|diagnosis,<br/>approval| claudeApp
+  watchdog -->|checks, starts| codex
+  codex <--> codexApp
 ```
 
 Exited servers are relaunched automatically. Running servers are not restarted on a schedule; use
