@@ -1,0 +1,22 @@
+#!/usr/bin/perl
+# A stand-in for the claude binary, for the lifecycle tests. `remote-control` behaves like a
+# server as far as remote-agents can see: it shows up in the process table under that name,
+# writes its bridge pointer (reusing the environment of an existing pointer), and exits on
+# SIGTERM. With FAKE_WORKER set it also runs one child, the way a server runs session workers.
+use strict; use Cwd;
+if (@ARGV >= 2 && $ARGV[0] eq 'auth') { sleep 6 if -e "$ENV{HOME}/slow-auth"; print qq({"loggedIn": true}\n); exit 0 }
+exit 2 unless @ARGV && $ARGV[0] eq 'remote-control';
+my $home = $ENV{CLAUDE_CONFIG_DIR} || "$ENV{HOME}/.claude";
+(my $slug = getcwd()) =~ s/[^A-Za-z0-9]/-/g;
+my $dir = "$home/projects/$slug";
+system('mkdir', '-p', $dir, "$home/sessions");
+my $ptr = "$dir/bridge-pointer.json";
+my $env = 'env_fake' . $$;
+if (open my $f, '<', $ptr) { local $/; my $j = <$f>; $env = $1 if $j =~ /"environmentId":"([^"]+)"/ }
+open my $o, '>', $ptr or die; print $o qq({"sessionId":"session_fake","environmentId":"$env","source":"standalone","pid":$$}); close $o;
+my $worker = 0;
+if ($ENV{FAKE_WORKER}) { $worker = fork; if (!$worker) { $0 = 'claude-worker'; sleep 1 while 1 } }
+$0 = "claude @ARGV";
+$SIG{TERM} = sub { kill 'TERM', $worker if $worker; print "Environment preserved.\n"; exit 0 };
+print "Connected\n";
+sleep 1 while 1;

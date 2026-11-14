@@ -1,0 +1,216 @@
+#!/bin/zsh
+# Tests. Everything runs against a temporary HOME with a stand-in for the claude binary
+# (tests/fake-claude); nothing on the machine is touched and no Claude Code is needed.
+#   zsh tests/run          helpers, config, incidents, and the server lifecycle (about a minute)
+#   zsh tests/run quick    without the lifecycle part
+emulate -L zsh
+setopt extended_glob
+RA_ROOT=${0:A:h:h}
+tmp=$(mktemp -d)
+trap 'rm -rf $tmp' EXIT
+export HOME=$tmp
+RA_CONFIG=$tmp/config RA_STATE=$tmp/state RA_LOGS=$tmp/logs
+for f in core claude supervise control incident codex watchdog status install; do source $RA_ROOT/lib/$f.zsh; done
+
+fails=0
+check() {  # NAME ACTUAL EXPECTED
+  if [[ $2 == $3 ]]; then print -r -- "ok    $1"; else print -r -- "FAIL  $1: got '$2', want '$3'"; (( fails += 1 )); fi
+}
+
+mkdir -p $tmp/work
+cat > $tmp/config <<CONF
+# a comment
+restart_note = a = b
+min_idle = 42
+
+[server one]
+dir = $tmp/work
+flags = --chrome  --permission-mode auto --no-create-session-in-dir
+
+[server two.b]
+dir = ~/nowhere
+observe = yes
+
+[codex]
+enabled = yes
+
+[repair]
+agent = none
+CONF
+load_config; check "config loads" $? 0
+check "servers in file order" "$SERVERS" "one two.b"
+check "top-level key" "$(cfg min_idle)" 42
+check "value keeps inner =" "$(cfg restart_note)" "a = b"
+check "default survives" "$(cfg probe_url)" https://api.anthropic.com/
+check "section key" "$(cfg codex.enabled)" yes
+check "server dir resolved" "$(srv_dir one)" ${tmp:A}/work
+check "tilde expands" "$(expand_path '~/x')" $tmp/x
+server_flags one; check "forbidden flag dropped" "${(j:|:)reply}" "--chrome|--permission-mode|auto"
+server_argv one; check "server arguments" "${(j:|:)reply}" "remote-control|--name|one|--remote-control-session-name-prefix|one|--chrome|--permission-mode|auto"
+server_flags two.b; check "default flags" "${(j:|:)reply}" "--permission-mode|default"
+CFG[server.one.flags]='--settings "/tmp/a b.json" --chrome'
+server_flags one; check "quoted flag stays one word" "${(j:|:)reply}" "--settings|/tmp/a b.json|--chrome"
+is_observed two.b; check "observe = yes" $? 0
+is_observed one;   check "observe default" $? 1
+
+print '[server bad name!]' > $tmp/bad; RA_CONFIG=$tmp/bad load_config 2>/dev/null; check "bad server name rejected" $? 1
+RA_CONFIG=$tmp/missing load_config; check "missing config fails" $? 1
+load_config
+
+printf '[server a]\ndir = %s\n[server b]\ndir = %s/../work\n' $tmp/work $tmp/work > $tmp/bad
+RA_CONFIG=$tmp/bad load_config 2>/dev/null; check "two servers in one folder rejected" $? 1
+print '[sevrer x]' > $tmp/bad; RA_CONFIG=$tmp/bad load_config 2>/dev/null; check "unknown section rejected" $? 1
+check "a bad config keeps the last good one" "$SERVERS" "one two.b"
+
+check "shell line round-trips" "$(eval "print -rl -- $(shell_line 'a b' "c'd" 'e;f' '$g')" | tr '\n' '|')" "a b|c'd|e;f|\$g|"
+t0=$EPOCHSECONDS; with_timeout 2 zsh -c 'sleep 30 & sleep 30' >/dev/null 2>&1; rc=$?
+check "timeout ends the whole process group" "$rc $(( EPOCHSECONDS - t0 < 8 ))" "124 1"
+with_timeout 5 zsh -c 'exit 3'; check "timeout passes the exit status" $? 3
+
+# a template gets each word as one argument; {run} arrives as one shell-quoted line
+print -r -- '#!/bin/zsh
+print -rl -- "$@" > '$tmp'/argv' > $tmp/recorder; chmod +x $tmp/recorder
+spawn_hosted lbl "$tmp/wo rk" "$tmp/recorder --cwd {dir} --name {name} --command {run}" /x/remote-agents run "a b"
+check "template words" "$(tr '\n' '|' < $tmp/argv)" "--cwd|$tmp/wo rk|--name|lbl|--command|/x/remote-agents run a\\ b|"
+check "template {run} reads back as the same words" "$(eval "print -rl -- $(sed -n 6p $tmp/argv)" | tr '\n' '|')" "/x/remote-agents|run|a b|"
+
+check "json string escapes" "$(json_str 'a "b" \ c')" '"a \"b\" \\ c"'
+check "json string drops control characters" "$(json_str $'a\nb\tc')" '"a b c"'
+check "xml escapes" "$(xml_esc 'a & <b>')" 'a &amp; &lt;b&gt;'
+check "pointer path" "$(pointer_file /Users/me/My.Project_1)" "$tmp/.claude/projects/-Users-me-My-Project-1/bridge-pointer.json"
+
+print '{"environmentId":"env_abc","pid":123,"source":"standalone"}' > $tmp/p.json
+check "json read: string" "$(jget $tmp/p.json environmentId)" env_abc
+check "json read: number" "$(jget $tmp/p.json pid)" 123
+jget $tmp/p.json nope >/dev/null; check "json read: missing key fails" $? 1
+
+out=$(printf 'one\n\033[2Ktwo\ntwo\ntwo\ntwo\n\033]8;;http://x\007three\033]8;;\007\n\n' | log_filter | sed 's/^[^|]*| //')
+check "log filter: codes stripped, repeats capped" "$out" $'one\ntwo\ntwo\ntwo\nthree'
+
+export FOO=1 CLAUDE_CODE_SESSION_ID=x CLAUDECODE=1 ANTHROPIC_API_KEY=k CLAUDE_CONFIG_DIR=$tmp/.claude
+scrub_env
+check "env scrub removes session variables" "${CLAUDE_CODE_SESSION_ID-}${CLAUDECODE-}${ANTHROPIC_API_KEY-}" ""
+check "env scrub keeps the rest" "$FOO $CLAUDE_CONFIG_DIR" "1 $tmp/.claude"
+unset CLAUDE_CONFIG_DIR
+
+# incidents: recorded once, announced by the service pass, cleared once; no repair with agent = none
+ensure_dirs
+notified=0; notify_local() { (( notified += 1 )) }
+hooked=0;   notify_hook()  { (( hooked += 1 )); return 0 }
+incident_open down.one 'server down in C:\new' >/dev/null
+incident_open down.one "server down" >/dev/null
+check "incident recorded with a literal message" "$(sed -n 5p $(incident_file down.one))" 'server down in C:\new'
+check "announced locally once" $notified 1
+incidents_service; incidents_service
+check "hook called once" $hooked 1
+check "no repair with agent = none" "$(sed -n 3p $(incident_file down.one))" -1
+incident_clear down.one >/dev/null
+check "cleared" "$([[ -e $(incident_file down.one) ]] && print yes || print no)" no
+check "resolution announced" "$notified $hooked" "2 2"
+hookfail() { return 1 }; functions[notify_hook]=$functions[hookfail]
+incident_open codex "codex down" norepair >/dev/null; incidents_service
+check "a failed hook stays pending" "$(sed -n 2p $(incident_file codex))" 0
+functions[notify_hook]='return 0'; incidents_service
+check "and is delivered on a later pass" "$(( $(sed -n 2p $(incident_file codex)) > 0 ))" 1
+incident_clear codex >/dev/null
+
+( cmd_reattach 'session_x; touch '$tmp'/pwned' --dir $tmp/work ) >/dev/null 2>&1
+check "reattach rejects a malformed session id" "$? $([[ -e $tmp/pwned ]] && print pwned || print clean)" "1 clean"
+( cmd_reattach session_abc --dir $tmp/work ) >/dev/null 2>&1; check "reattach rejects a server's folder" $? 1
+mkdir -p $RA_LOGS; print line > $RA_LOGS/watchdog.log
+( cmd_logs watchdog 'x[$(touch '$tmp'/pwned2)]' ) >/dev/null 2>&1
+check "logs takes only a number of lines" "$? $([[ -e $tmp/pwned2 ]] && print pwned || print clean)" "1 clean"
+check "logs prints" "$( ( cmd_logs watchdog 5 ) )" line
+printf 'min_idle = 1+1\n[server a]\ndir = %s\n' $tmp/work > $tmp/bad
+RA_CONFIG=$tmp/bad load_config 2>/dev/null; check "numbers in the config must be numbers" $? 1
+
+supervisor_running one; check "no supervisor yet" $? 1
+: >| $(supervisor_lock one); zsystem flock -t 0 -f fd $(supervisor_lock one)
+( supervisor_running one ); check "lock held = supervisor running" $? 0
+zsystem flock -u $fd
+
+
+# ---------------------------------------------------------------- lifecycle, with the stand-in
+if [[ ${1-} != quick ]]; then
+  cat > $tmp/config <<CONF
+claude = $RA_ROOT/tests/fake-claude
+probe_url = file:///dev/null
+min_idle = 5
+start_command = /usr/bin/true
+
+[server one]
+dir = $tmp/work
+
+[repair]
+agent = none
+CONF
+  load_config
+  ptr=$(pointer_file ${tmp:A}/work)
+  up() {  # wait for a registered server; print its pid
+    local i p
+    for i in {1..150}; do p=$(server_pid ${tmp:A}/work) && [[ $(jget $ptr pid) == $p ]] && { print $p; return 0 }; sleep 0.2; done
+    return 1
+  }
+  export RA_CONFIG RA_STATE RA_LOGS FAKE_WORKER=1
+  zsh $RA_ROOT/bin/remote-agents run one >> $tmp/sup.log 2>&1 &
+  sup=$!
+  p1=$(up); check "supervisor starts the server" "$(( ${p1:-0} > 0 ))" 1
+  e1=$(jget $ptr environmentId)
+  ( supervisor_running one ); check "supervisor holds its lock" $? 0
+  ( cmd_restart --dry-run one ) >/dev/null; check "restart --dry-run agrees" $? 0
+
+  # a worker that is busy blocks the restart
+  w=$(pgrep -P $p1 | head -1)
+  print -r -- "{\"status\":\"busy\",\"statusUpdatedAt\":${EPOCHSECONDS}000,\"bridgeSessionId\":\"session_w1\"}" > $tmp/.claude/sessions/$w.json
+  out=$( ( cmd_restart one ) 2>&1 ); check "restart refuses while a session is at work" "$? ${out[(w)4,(w)5]}" "1 not restarted:"
+  check "the server was left alone" "$(server_pid ${tmp:A}/work)" $p1
+  rm -f $tmp/.claude/sessions/$w.json
+
+  # a pointer owned by someone else makes the stop unsafe
+  cp $ptr $tmp/ptr.bak; print -r -- "{\"environmentId\":\"$e1\",\"pid\":1}" > $ptr
+  out=$( ( cmd_restart one ) 2>&1 ); check "restart refuses an unsafe stop" "$? ${out[(w)4]}" "1 UNSAFE,"
+  ( cmd_stop one ) >/dev/null 2>&1; check "stop refuses an unsafe stop" "$? $(server_pid ${tmp:A}/work)" "1 $p1"
+  cp $tmp/ptr.bak $ptr
+
+  ( cmd_restart one ) > $tmp/restart.out 2>&1; rc=$?
+  p2=$(up)
+  check "restart succeeds" $rc 0
+  check "a new server on the same environment" "$(( p2 != p1 )) $(jget $ptr environmentId)" "1 $e1"
+  check "restart reports the kept sessions" "$(grep -c 'same environment' $tmp/restart.out)" 1
+
+  # the watchdog's view: environment change -> incident; sessions land in the inventory
+  WD_STARTED=$EPOCHSECONDS
+  w=$(pgrep -P $p2 | head -1)
+  print -r -- "{\"status\":\"idle\",\"statusUpdatedAt\":${EPOCHSECONDS}000,\"bridgeSessionId\":\"session_w2\"}" > $tmp/.claude/sessions/$w.json
+  tick_server one >/dev/null; check "first sight records the environment" "$(known_env one)" $e1
+  check "session in the inventory" "$(cut -f1-3 $RA_STATE/sessions.tsv)" "session_w2"$'\t'"one"$'\t'"$e1"
+  write_file $RA_STATE/env/one env_old
+  tick_server one >/dev/null; check "a changed environment opens an incident" "$([[ -e $(incident_file env.one) ]] && print yes)" yes
+  incident_clear env.one >/dev/null
+
+  ( cmd_stop --force one ) >/dev/null 2>&1; check "stop" "$? $(server_pid ${tmp:A}/work || print none)" "0 none"
+  tick_server one >/dev/null; check "a paused server is not an incident" "$([[ -e $(incident_file down.one) ]] && print yes || print no)" no
+  ( cmd_start one ) >/dev/null 2>&1
+  p3=$(up); check "start resumes it on the same environment" "$(( ${p3:-0} > 0 )) $(jget $ptr environmentId)" "1 $e1"
+
+  # stop while the supervisor is between "not paused" and starting the server (a slow login check)
+  ( cmd_stop --force one ) >/dev/null 2>&1
+  : > $tmp/slow-auth
+  ( cmd_start one ) >/dev/null 2>&1
+  sleep 7                                   # the supervisor is now inside the slow login check
+  ( cmd_stop one ) > $tmp/stop.out 2>&1
+  sleep 8
+  check "a stop during a start wins" "$(server_pid ${tmp:A}/work || print none)" none
+  rm -f $tmp/slow-auth
+  ( cmd_start one ) >/dev/null 2>&1
+  p4=$(up); check "and the server starts again afterwards" "$(( ${p4:-0} > 0 ))" 1
+
+  kill -TERM $sup; wait_gone $sup 20
+  check "stopping the supervisor stops its server" "$(server_pid ${tmp:A}/work || print none)" none
+  check "and the pointer stays for the next start" "$(jget $ptr environmentId)" $e1
+  pkill -f "$RA_ROOT/tests/fake-claude" 2>/dev/null
+fi
+
+print -r -- ""
+(( fails )) && { print -r -- "$fails test(s) failed"; exit 1 }
+print -r -- "all tests passed"

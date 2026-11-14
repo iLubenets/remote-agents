@@ -1,0 +1,61 @@
+#!/bin/zsh
+# remote-agents: keep Claude Code Remote Control servers and Codex remote control always on.
+emulate -L zsh
+setopt extended_glob
+RA_ROOT=${0:A:h:h}
+path=($HOME/.local/bin /opt/homebrew/bin /usr/local/bin $path)
+for f in core claude supervise control incident codex watchdog status install; do source $RA_ROOT/lib/$f.zsh; done
+
+usage() {
+  cat <<'USAGE'
+remote-agents: keep Claude Code Remote Control servers and Codex remote control always on.
+
+Looking:
+  status [--json|--watch]  every server, Codex, open incidents (exit 1 when one is open);
+                         --watch repeats it every 5 s
+  doctor                 check the setup and say what is wrong
+  sessions               the sessions each server runs, and which ones are detached
+  incidents              open incidents (incidents clear KEY forgets one)
+  logs [NAME] [LINES]    the watchdog's log, or a server's
+
+Acting:
+  ensure                 start whatever is missing (what the watchdog does every 20 s)
+  restart NAME...        restart a server on purpose, keeping its sessions; refuses when it cannot
+      --if-needed          only when Claude Code or the flags changed
+      --force              even while a session is at work (the running turn is cut)
+      --allow-session-loss even when the stop would archive the open sessions
+      --dry-run            only say what would happen
+  stop NAME... / start NAME...   stop a server and keep it stopped / let it run again
+  reattach SESSION_ID --dir FOLDER [--like SERVER]   bring one detached session back
+
+Setup:
+  install / uninstall    the LaunchAgents (run install again after editing the config)
+  codex-release-quarantine   after `brew upgrade`: unquarantine OpenAI-signed codex binaries
+
+Run by the LaunchAgents, not by hand:  run NAME,  watchdog
+Config: ~/.config/remote-agents/config   Logs: ~/Library/Logs/remote-agents
+USAGE
+}
+
+cmd=${1:-help}
+(( $# )) && shift
+case $cmd in
+  run)        cmd_run "$@" ;;
+  watchdog)   cmd_watchdog "$@" ;;
+  status)     cmd_status "$@" ;;
+  doctor)     cmd_doctor "$@" ;;
+  sessions)   cmd_sessions "$@" ;;
+  incidents)  cmd_incidents "$@" ;;
+  logs)       cmd_logs "$@" ;;
+  ensure)     cmd_ensure "$@" ;;
+  restart)    cmd_restart "$@" ;;
+  stop)       cmd_stop "$@" ;;
+  start)      cmd_start "$@" ;;
+  reattach)   cmd_reattach "$@" ;;
+  install)    cmd_install "$@" ;;
+  uninstall)  cmd_uninstall "$@" ;;
+  codex-release-quarantine) cmd_codex_release_quarantine "$@" ;;
+  version|--version) print $RA_VERSION ;;
+  help|-h|--help) usage ;;
+  *) warn "unknown command: $cmd"; usage >&2; exit 2 ;;
+esac
