@@ -60,7 +60,8 @@ notify_local() {
 notify_hook() {
   local hook=$(cfg repair.notify_command)
   [[ -n $hook ]] || return 0
-  with_timeout 30 "${(@Q)${(z)hook}}" "$1" >/dev/null 2>&1
+  config_words $hook
+  with_timeout 30 "${reply[@]}" "$1" >/dev/null 2>&1
 }
 
 # What the repair session may run without asking: commands that only look, and `ensure`.

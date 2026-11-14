@@ -35,7 +35,8 @@ An incident is announced once on the Mac, then through your own `notify_command`
 one, and a repair session is started: Claude Code on a cheap model with Remote Control on, so it
 shows up in the Claude app next to your other sessions. It can look (`status`, `doctor`, logs,
 process list) and run `remote-agents ensure`. Anything else it has to ask you for, in that
-session. The list of commands it may run without asking is a convenience, not a sandbox: give it
+session. [examples/notify-telegram](examples/notify-telegram) is a ready `notify_command` that
+sends the message to a Telegram chat. The list of commands it may run without asking is a convenience, not a sandbox: give it
 a folder of its own (`[repair] dir`) so no project's settings apply to it.
 
 ## What it does not do

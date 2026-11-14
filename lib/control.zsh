@@ -19,9 +19,9 @@ spawn_hosted() {  # LABEL DIR TEMPLATE COMMAND ARG...
   shift 3
   local -a words
   if [[ -n $tmpl ]]; then
-    [[ -n $setup ]] && with_timeout 60 "${(@Q)${(z)setup}}" >/dev/null 2>&1
+    [[ -n $setup ]] && { config_words $setup; with_timeout 60 "${reply[@]}" >/dev/null 2>&1 }
     line=$(shell_line "$@")
-    words=("${(@Q)${(z)tmpl}}")
+    config_words $tmpl; words=("${reply[@]}")
     words=("${(@)words//\{name\}/$label}")
     words=("${(@)words//\{dir\}/$dir}")
     words=("${(@)words//\{run\}/$line}")

@@ -137,6 +137,13 @@ with_timeout() {
 # Does anything answer at probe_url? Any HTTP reply counts.
 network_up() { curl -s -o /dev/null -m 8 "$(cfg probe_url)" }
 
+# Set `reply` to the words of a command written in the config: quotes group words, and a leading
+# ~ in a word is the home folder. Nothing else is interpreted; the words are run as they are.
+config_words() {
+  reply=("${(@Q)${(z)1}}")
+  reply=("${(@)reply/#\~\//$HOME/}")
+}
+
 # Quote words into one command line a shell reads back as the same words.
 shell_line() { print -r -- "${(j: :)${(@q)@}}" }
 

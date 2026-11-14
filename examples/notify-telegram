@@ -1,0 +1,25 @@
+#!/bin/zsh
+# A notify_command for remote-agents: send the message to a Telegram chat through a bot.
+#
+#   [repair]
+#   notify_command = ~/remote-agents/examples/notify-telegram
+#
+# It reads ~/.config/remote-agents/telegram (make it mode 600), two lines:
+#   token=123456:ABC...        the bot's token, from @BotFather
+#   chat_id=123456789          your chat with the bot (send it a message first)
+# Exits non-zero when Telegram did not accept the message, so remote-agents tries again later.
+emulate -L zsh
+conf=${REMOTE_AGENTS_TELEGRAM:-$HOME/.config/remote-agents/telegram}
+[[ -r $conf ]] || { print -u2 "notify-telegram: cannot read $conf"; exit 1 }
+token= chat=
+while IFS='=' read -r k v; do
+  case $k in
+    token) token=$v ;;
+    chat_id) chat=$v ;;
+  esac
+done < $conf
+[[ -n $token && -n $chat && $# -ge 1 ]] || { print -u2 "notify-telegram: need token, chat_id and a message"; exit 1 }
+# The address with the token goes to curl on stdin, so it never shows in the process list.
+code=$(print -r -- "url = \"https://api.telegram.org/bot$token/sendMessage\"" |
+  curl -sS -m 20 -K - --data-urlencode "chat_id=$chat" --data-urlencode "text=${(j: :)@}" -o /dev/null -w '%{http_code}')
+[[ $code == 200 ]]

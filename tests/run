@@ -72,6 +72,11 @@ print -r -- '#!/bin/zsh
 print -rl -- "$@" > '$tmp'/argv' > $tmp/recorder; chmod +x $tmp/recorder
 spawn_hosted lbl "$tmp/wo rk" "$tmp/recorder --cwd {dir} --name {name} --command {run}" /x/remote-agents run "a b"
 check "template words" "$(tr '\n' '|' < $tmp/argv)" "--cwd|$tmp/wo rk|--name|lbl|--command|/x/remote-agents run a\\ b|"
+config_words '~/bin/x "a b" ~x c~/d'; check "config words: quotes and a leading ~/" "${(j:|:)reply}" "$tmp/bin/x|a b|~x|c~/d"
+print -r -- '#!/bin/zsh
+print -r -- "$1" > '$tmp'/hooked' > $tmp/hook; chmod +x $tmp/hook
+CFG[repair.notify_command]='~/hook'; notify_hook "hello there"; check "notify_command runs with the message" "$? $(<$tmp/hooked)" "0 hello there"
+unset "CFG[repair.notify_command]"
 check "template {run} reads back as the same words" "$(eval "print -rl -- $(sed -n 6p $tmp/argv)" | tr '\n' '|')" "/x/remote-agents|run|a b|"
 
 check "json string escapes" "$(json_str 'a "b" \ c')" '"a \"b\" \\ c"'
