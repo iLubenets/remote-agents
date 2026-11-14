@@ -1,0 +1,11 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: syntax
+        run: for f in bin/remote-agents lib/*.zsh install.sh tests/run examples/notify-telegram; do zsh -n "$f"; done
+      - name: unit tests
+        run: zsh tests/run

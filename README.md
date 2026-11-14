@@ -1,5 +1,7 @@
 # remote-agents
 
+[![tests](https://github.com/iLubenets/remote-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/iLubenets/remote-agents/actions/workflows/ci.yml)
+
 Keep Claude Code Remote Control servers and Codex remote control always on, on a Mac that nobody
 sits at, so that the sessions you drive from your phone or browser are there when you need them
 and are still there tomorrow.
