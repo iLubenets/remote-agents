@@ -89,7 +89,7 @@ tick_reattached() {
   local -a l
   for f in $RA_STATE/reattached/session_*(N); do
     sid=${f:t}
-    pgrep -u $UID -f "remote-control --session-id $sid" >/dev/null && continue
+    pgrep -u $UID -f "claude (rc|remote-control) --session-id $sid( |\$)" >/dev/null && continue
     l=("${(@f)$(<$f)}")
     rm -f $f
     incident_open reattach.${sid[-8,-1]} "The process serving the reattached session $sid has exited. If the session was not finished: remote-agents reattach $sid --dir $l[1]${l[2]:+ --like $l[2]}" norepair

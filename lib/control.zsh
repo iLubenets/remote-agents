@@ -255,7 +255,7 @@ cmd_reattach() {
   spawn_hosted reattach-${sid[-6,-1]} $dir "$(cfg start_command)" $(claude_bin) remote-control --session-id $sid "${flags[@]}"
   for (( i = 0; i < 15; i++ )); do
     sleep 2
-    if pgrep -u $UID -f "remote-control --session-id $sid" >/dev/null; then
+    if pgrep -u $UID -f "claude (rc|remote-control) --session-id $sid( |\$)" >/dev/null; then
       # Written down, one file per session, so the watchdog can tell when this process goes away.
       mkdir -p $RA_STATE/reattached
       write_file $RA_STATE/reattached/$sid "$dir" "$from"
