@@ -81,10 +81,10 @@ alert_after = 1800
 #   2. notify_command, if set: any command, it gets the message as its last argument. Use it to
 #      reach yourself when you are away (a webhook script, a messenger CLI). It is retried until
 #      it succeeds.
-#   3. agent = claude: a Claude Code session on a cheap model, with Remote Control on, so it
-#      appears in the Claude app. It diagnoses with read-only commands, may run
+#   3. agent = claude (needs dir, below): a Claude Code session on a cheap model, with Remote
+#      Control on, so it appears in the Claude app. It diagnoses with read-only commands, may run
 #      `remote-agents ensure`, and asks you there before anything else. agent = none: steps 1-2 only.
-agent = claude
+agent = none
 model = haiku
 permission_mode = default
 # notify_command = ~/bin/notify-me

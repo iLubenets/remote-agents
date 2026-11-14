@@ -37,7 +37,7 @@ load_config() {
     down_after       300
     codex.enabled    no
     codex.alert_after 1800
-    repair.agent     claude
+    repair.agent     none
     repair.model     haiku
     repair.permission_mode default
     repair.ttl       7200
