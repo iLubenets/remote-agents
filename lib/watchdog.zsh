@@ -36,7 +36,7 @@ tick_server() {
         write_file $RA_STATE/env/$name $env
         if [[ -n $known ]]; then
           write_file $RA_STATE/env/$name.previous $known
-          incident_open env.$name "$name came back on a new environment ($known -> $env). Sessions that were open on the old one are detached; list them with: remote-agents sessions"
+          incident_open env.$name "$name came back on a new environment ($known -> $env). Sessions that were open on the old one are detached; list them with: remote-agents sessions. Scheduled tasks created for the old environment fail until they are pointed at the new one (docs/repair-runbook.md)"
         fi
       fi
       inventory_update $name $pid $env
